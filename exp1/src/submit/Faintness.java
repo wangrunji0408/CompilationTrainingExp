@@ -30,9 +30,6 @@ public class Faintness extends Liveness implements Flow.Analysis {
     }
 
     private void transfer(Quad q, VarSet val) {
-        for (Operand.RegisterOperand def : q.getDefinedRegisters()) {
-            val.killVar(def.getRegister().toString());
-        }
         boolean realUse = true;
         if(q.getOperator() instanceof Operator.Move
         || q.getOperator() instanceof Operator.Binary) {
@@ -43,6 +40,9 @@ public class Faintness extends Liveness implements Flow.Analysis {
             for (Operand.RegisterOperand use : q.getUsedRegisters()) {
                 val.genVar(use.getRegister().toString());
             }
+        }
+        for (Operand.RegisterOperand def : q.getDefinedRegisters()) {
+            val.killVar(def.getRegister().toString());
         }
     }
 }

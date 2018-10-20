@@ -121,21 +121,11 @@ public class MySolver implements Flow.Solver {
 
     static HashSet<Quad> findAllExitQuad(ControlFlowGraph cfg) {
         HashSet<Quad> exitQuads = new HashSet<Quad>();
-
-        HashSet<BasicBlock> emptyExitBlocks = new HashSet<BasicBlock>();
-        emptyExitBlocks.add(cfg.exit());
-        while(!emptyExitBlocks.isEmpty()) {
-            BasicBlock b = emptyExitBlocks.iterator().next();
-            emptyExitBlocks.remove(b);
-            for(BasicBlock bb: b.getPredecessors()) {
-                Quad lastQuad = bb.getLastQuad();
-                if(lastQuad == null) {
-                    emptyExitBlocks.add(bb);
-                } else {
-                    exitQuads.add(lastQuad);
-                }
-            }
-        }
+		for(QuadIterator iter = new QuadIterator(cfg); iter.hasNext(); ) {
+			Quad q = iter.next();
+			if(iter.successors1().contains(null))
+				exitQuads.add(q);
+		}
         return exitQuads;
     }
 }

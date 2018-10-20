@@ -3,6 +3,9 @@ package submit;
 // some useful things to import. add any additional imports you need.
 import joeq.Compiler.Quad.*;
 import flow.Flow;
+import joeq.Main.Helper;
+
+import java.util.*;
 
 /**
  * Skeleton class for implementing a reaching definition analysis
@@ -14,16 +17,31 @@ public class ReachingDefs implements Flow.Analysis {
      * Class for the dataflow objects in the ReachingDefs analysis.
      * You are free to change this class or move it to another file.
      */
-    public class MyDataflowObject implements Flow.DataflowObject {
+    public static class RdSet implements Flow.DataflowObject {
+        private Set<Integer> rdSet;
+        static Set<Integer> rdCompleteSet;
+
+        RdSet() {
+            rdSet = new TreeSet<Integer>();
+        }
+
         /**
          * Methods from the Flow.DataflowObject interface.
          * See Flow.java for the meaning of these methods.
          * These need to be filled in.
          */
-        public void setToTop() {}
-        public void setToBottom() {}
-        public void meetWith (Flow.DataflowObject o) {}
-        public void copy (Flow.DataflowObject o) {}
+        public void setToTop() {
+            rdSet = new TreeSet<Integer>();
+        }
+        public void setToBottom() {
+            rdSet = new TreeSet<Integer>(rdCompleteSet);
+        }
+        public void meetWith (Flow.DataflowObject o) {
+            rdSet.addAll(((RdSet)o).rdSet);
+        }
+        public void copy (Flow.DataflowObject o) {
+            rdSet = new TreeSet<Integer>(((RdSet)o).rdSet);
+        }
 
         /**
          * toString() method for the dataflow objects which is used
@@ -35,7 +53,20 @@ public class ReachingDefs implements Flow.Analysis {
          * your reaching definitions analysis must match this exactly.
          */
         @Override
-        public String toString() { return ""; }
+        public String toString() { return rdSet.toString(); }
+
+        @Override
+        public boolean equals(Object o) {
+            if (o instanceof RdSet) {
+                return rdSet.equals(((RdSet) o).rdSet);
+            }
+            return false;
+        }
+
+        @Override
+        public int hashCode() {
+            return rdSet.hashCode();
+        }
     }
 
     /**
@@ -46,8 +77,8 @@ public class ReachingDefs implements Flow.Analysis {
      * You are free to modify these fields, just make sure to
      * preserve the data printed by postprocess(), which relies on these.
      */
-    private MyDataflowObject[] in, out;
-    private MyDataflowObject entry, exit;
+    private RdSet[] in, out;
+    private RdSet entry, exit;
 
     /**
      * This method initializes the datflow framework.
@@ -58,35 +89,40 @@ public class ReachingDefs implements Flow.Analysis {
         // this line must come first.
         System.out.println("Method: "+cfg.getMethod().getName().toString());
 
-        // get the amount of space we need to allocate for the in/out arrays.
-        QuadIterator qit = new QuadIterator(cfg);
-        int max = 0;
-        while (qit.hasNext()) {
-            int id = qit.next().getID();
-            if (id > max)
-                max = id;
-        }
-        max += 1;
-
         // allocate the in and out arrays.
-        in = new MyDataflowObject[max];
-        out = new MyDataflowObject[max];
+        in = new RdSet[cfg.getMaxQuadID() + 1];
+        out = new RdSet[cfg.getMaxQuadID() + 1];
 
         // initialize the contents of in and out.
-        qit = new QuadIterator(cfg);
+        QuadIterator qit = new QuadIterator(cfg);
         while (qit.hasNext()) {
             int id = qit.next().getID();
-            in[id] = new MyDataflowObject();
-            out[id] = new MyDataflowObject();
+            in[id] = new RdSet();
+            out[id] = new RdSet();
         }
 
         // initialize the entry and exit points.
-        entry = new MyDataflowObject();
-        exit = new MyDataflowObject();
+        entry = new RdSet();
+        exit = new RdSet();
 
-        /************************************************
-         * Your remaining initialization code goes here *
-         ************************************************/
+        // Init complete set
+        TreeSet<Integer> s = new TreeSet<Integer>();
+        for(int i=1; i<=cfg.getMaxQuadID(); ++i)
+            s.add(i);
+        RdSet.rdCompleteSet = s;
+
+        // Init varToIds
+        Map<String, Collection<Integer>> m = new HashMap<String, Collection<Integer>>();
+        for(qit = new QuadIterator(cfg); qit.hasNext(); ) {
+            Quad q = qit.next();
+            for(Operand.RegisterOperand rr: q.getDefinedRegisters()) {
+                String r = rr.getRegister().toString();
+                if(!m.containsKey(r))
+                    m.put(r, new TreeSet<Integer>());
+                m.get(r).add(q.getID());
+            }
+        }
+        TransferFunction.varToIds = m;
     }
 
     /**
@@ -114,15 +150,70 @@ public class ReachingDefs implements Flow.Analysis {
      * See Flow.java for the meaning of these methods.
      * These need to be filled in.
      */
-    public boolean isForward () { return false; }
-    public Flow.DataflowObject getEntry() { return null; }
-    public Flow.DataflowObject getExit() { return null; }
-    public void setEntry(Flow.DataflowObject value) {}
-    public void setExit(Flow.DataflowObject value) {}
-    public Flow.DataflowObject getIn(Quad q) { return null; }
-    public Flow.DataflowObject getOut(Quad q) { return null; }
-    public void setIn(Quad q, Flow.DataflowObject value) {}
-    public void setOut(Quad q, Flow.DataflowObject value) {}
-    public Flow.DataflowObject newTempVar() { return null; }
-    public void processQuad(Quad q) {}
+    public boolean isForward () { return true; }
+    public Flow.DataflowObject getEntry()
+    {
+        Flow.DataflowObject result = newTempVar();
+        result.copy(entry);
+        return result;
+    }
+    public Flow.DataflowObject getExit()
+    {
+        Flow.DataflowObject result = newTempVar();
+        result.copy(exit);
+        return result;
+    }
+    public Flow.DataflowObject getIn(Quad q)
+    {
+        Flow.DataflowObject result = newTempVar();
+        result.copy(in[q.getID()]);
+        return result;
+    }
+    public Flow.DataflowObject getOut(Quad q)
+    {
+        Flow.DataflowObject result = newTempVar();
+        result.copy(out[q.getID()]);
+        return result;
+    }
+    public void setIn(Quad q, Flow.DataflowObject value)
+    {
+        in[q.getID()].copy(value);
+    }
+    public void setOut(Quad q, Flow.DataflowObject value)
+    {
+        out[q.getID()].copy(value);
+    }
+    public void setEntry(Flow.DataflowObject value)
+    {
+        entry.copy(value);
+    }
+    public void setExit(Flow.DataflowObject value)
+    {
+        exit.copy(value);
+    }
+    public Flow.DataflowObject newTempVar() { return new RdSet(); }
+    public void processQuad(Quad q) {
+        // Actually perform the transfer operation on the relevant quad.
+        TransferFunction transferfn = new TransferFunction();
+        transferfn.val.copy(in[q.getID()]);
+        Helper.runPass(q, transferfn);
+        out[q.getID()].copy(transferfn.val);
+    }
+
+    /* The QuadVisitor that actually does the computation */
+    public static class TransferFunction extends QuadVisitor.EmptyVisitor {
+        RdSet val = new RdSet();
+        static Map<String, Collection<Integer>> varToIds;
+
+        @Override
+        public void visitQuad(Quad q) {
+            // Kill
+            for (Operand.RegisterOperand def : q.getDefinedRegisters()) {
+                val.rdSet.removeAll(varToIds.get(def.getRegister().toString()));
+            }
+            // Gen
+            if(!q.getDefinedRegisters().isEmpty())
+                val.rdSet.add(q.getID());
+        }
+    }
 }

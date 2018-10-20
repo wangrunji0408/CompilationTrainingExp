@@ -13,6 +13,14 @@ public class Liveness implements Flow.Analysis {
 
         public void setToTop() { set = new TreeSet<String>(); }
         public void setToBottom() { set = new TreeSet<String>(universalSet); }
+        public void _setToCompliment() {
+            Set<String> old = set;
+            setToBottom();
+            set.removeAll(old);
+        }
+        public boolean contains(String s) {
+            return set.contains(s);
+        }
 
         public void meetWith(Flow.DataflowObject o) 
         {
@@ -50,8 +58,8 @@ public class Liveness implements Flow.Analysis {
         public void killVar(String v) {set.remove(v);}
     }
 
-    private VarSet[] in, out;
-    private VarSet entry, exit;
+    protected VarSet[] in, out;
+    protected VarSet entry, exit;
 
     public void preprocess(ControlFlowGraph cfg) {
         System.out.println("Method: "+cfg.getMethod().getName().toString());

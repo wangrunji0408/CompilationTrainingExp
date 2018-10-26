@@ -1,0 +1,180 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project name="exp2" default="all">
+  
+  
+  <property file="exp2.properties"/>
+  <!-- Uncomment the following property if no tests compilation is needed -->
+  <!-- 
+  <property name="skip.tests" value="true"/>
+   -->
+  
+  <!-- Compiler options -->
+  
+  <property name="compiler.debug" value="on"/>
+  <property name="compiler.generate.no.warnings" value="off"/>
+  <property name="compiler.args" value=""/>
+  <property name="compiler.max.memory" value="700m"/>
+  <patternset id="ignored.files">
+    <exclude name="**/*.hprof/**"/>
+    <exclude name="**/*.pyc/**"/>
+    <exclude name="**/*.pyo/**"/>
+    <exclude name="**/*.rbc/**"/>
+    <exclude name="**/*.yarb/**"/>
+    <exclude name="**/*~/**"/>
+    <exclude name="**/.DS_Store/**"/>
+    <exclude name="**/.git/**"/>
+    <exclude name="**/.hg/**"/>
+    <exclude name="**/.svn/**"/>
+    <exclude name="**/CVS/**"/>
+    <exclude name="**/__pycache__/**"/>
+    <exclude name="**/_svn/**"/>
+    <exclude name="**/vssver.scc/**"/>
+    <exclude name="**/vssver2.scc/**"/>
+  </patternset>
+  <patternset id="library.patterns">
+    <include name="*.war"/>
+    <include name="*.swc"/>
+    <include name="*.apk"/>
+    <include name="*.zip"/>
+    <include name="*.egg"/>
+    <include name="*.ane"/>
+    <include name="*.jar"/>
+    <include name="*.ear"/>
+  </patternset>
+  <patternset id="compiler.resources">
+    <exclude name="**/?*.java"/>
+    <exclude name="**/?*.form"/>
+    <exclude name="**/?*.class"/>
+    <exclude name="**/?*.groovy"/>
+    <exclude name="**/?*.scala"/>
+    <exclude name="**/?*.flex"/>
+    <exclude name="**/?*.kt"/>
+    <exclude name="**/?*.clj"/>
+    <exclude name="**/?*.aj"/>
+  </patternset>
+  
+  <!-- JDK definitions -->
+  
+  <property name="jdk.bin.1.5" value="${jdk.home.1.5}/bin"/>
+  <path id="jdk.classpath.1.5">
+    <fileset dir="${jdk.home.1.5}">
+      <include name="jre/lib/charsets.jar"/>
+      <include name="jre/lib/ext/dnsns.jar"/>
+      <include name="jre/lib/ext/localedata.jar"/>
+      <include name="jre/lib/ext/sunjce_provider.jar"/>
+      <include name="jre/lib/jce.jar"/>
+      <include name="jre/lib/jsse.jar"/>
+      <include name="jre/lib/rt.jar"/>
+    </fileset>
+  </path>
+  
+  <property name="project.jdk.home" value="${jdk.home.1.5}"/>
+  <property name="project.jdk.bin" value="${jdk.bin.1.5}"/>
+  <property name="project.jdk.classpath" value="jdk.classpath.1.5"/>
+  
+  
+  <!-- Project Libraries -->
+  
+  <path id="library.joeq.classpath">
+    <pathelement location="${basedir}/lib/joeq.jar"/>
+  </path>
+  
+  
+  <!-- Global Libraries -->
+  
+  <!-- Modules -->
+  
+  
+  <!-- Module exp2 -->
+  
+  <dirname property="module.exp2.basedir" file="${ant.file}"/>
+  
+  
+  <property name="module.jdk.home.exp2" value="${project.jdk.home}"/>
+  <property name="module.jdk.bin.exp2" value="${project.jdk.bin}"/>
+  <property name="module.jdk.classpath.exp2" value="${project.jdk.classpath}"/>
+  
+  <property name="compiler.args.exp2" value="-encoding UTF-8 -source 5 -target 5 ${compiler.args}"/>
+  
+  <property name="exp2.output.dir" value="${module.exp2.basedir}/build"/>
+  <property name="exp2.testoutput.dir" value="${module.exp2.basedir}/build"/>
+  
+  <path id="exp2.module.bootclasspath">
+    <!-- Paths to be included in compilation bootclasspath -->
+  </path>
+  
+  <path id="exp2.module.production.classpath">
+    <path refid="${module.jdk.classpath.exp2}"/>
+    <path refid="library.joeq.classpath"/>
+  </path>
+  
+  <path id="exp2.runtime.production.module.classpath">
+    <pathelement location="${exp2.output.dir}"/>
+    <path refid="library.joeq.classpath"/>
+  </path>
+  
+  <path id="exp2.module.classpath">
+    <path refid="${module.jdk.classpath.exp2}"/>
+    <pathelement location="${exp2.output.dir}"/>
+    <path refid="library.joeq.classpath"/>
+  </path>
+  
+  <path id="exp2.runtime.module.classpath">
+    <pathelement location="${exp2.testoutput.dir}"/>
+    <pathelement location="${exp2.output.dir}"/>
+    <path refid="library.joeq.classpath"/>
+  </path>
+  
+  
+  <patternset id="excluded.from.module.exp2">
+    <patternset refid="ignored.files"/>
+  </patternset>
+  
+  <patternset id="excluded.from.compilation.exp2">
+    <patternset refid="excluded.from.module.exp2"/>
+  </patternset>
+  
+  <path id="exp2.module.sourcepath">
+    <dirset dir="${module.exp2.basedir}">
+      <include name="src"/>
+    </dirset>
+  </path>
+  
+  
+  <target name="compile.module.exp2" depends="compile.module.exp2.production,compile.module.exp2.tests" description="Compile module exp2"/>
+  
+  <target name="compile.module.exp2.production" description="Compile module exp2; production classes">
+    <mkdir dir="${exp2.output.dir}"/>
+    <javac destdir="${exp2.output.dir}" debug="${compiler.debug}" nowarn="${compiler.generate.no.warnings}" memorymaximumsize="${compiler.max.memory}" fork="true" executable="${module.jdk.bin.exp2}/javac">
+      <compilerarg line="${compiler.args.exp2}"/>
+      <bootclasspath refid="exp2.module.bootclasspath"/>
+      <classpath refid="exp2.module.production.classpath"/>
+      <src refid="exp2.module.sourcepath"/>
+      <patternset refid="excluded.from.compilation.exp2"/>
+    </javac>
+    
+    <copy todir="${exp2.output.dir}">
+      <fileset dir="${module.exp2.basedir}/src">
+        <patternset refid="compiler.resources"/>
+        <type type="file"/>
+      </fileset>
+    </copy>
+  </target>
+  
+  <target name="compile.module.exp2.tests" depends="compile.module.exp2.production" description="compile module exp2; test classes" unless="skip.tests"/>
+  
+  <target name="clean.module.exp2" description="cleanup module">
+    <delete dir="${exp2.output.dir}"/>
+    <delete dir="${exp2.testoutput.dir}"/>
+  </target>
+  
+  <target name="init" description="Build initialization">
+    <!-- Perform any build initialization in this target -->
+  </target>
+  
+  <target name="clean" depends="clean.module.exp2" description="cleanup all"/>
+  
+  <target name="build.modules" depends="init, clean, compile.module.exp2" description="build all modules"/>
+  
+  <target name="all" depends="build.modules" description="build all"/>
+</project>

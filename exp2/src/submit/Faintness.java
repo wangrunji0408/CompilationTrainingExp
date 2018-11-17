@@ -25,7 +25,7 @@ public class Faintness implements Flow.Analysis {
      * preserve the data printed by postprocess(), which relies on these.
      */
     private VarSet[] in, out;
-    private VarSet entry, exit;
+    VarSet entry, exit;
 
     /**
      * This method initializes the datflow framework.
@@ -34,7 +34,7 @@ public class Faintness implements Flow.Analysis {
      */
     public void preprocess(ControlFlowGraph cfg) {
         // this line must come first.
-        System.out.println("Method: " + cfg.getMethod().getName().toString());
+//        System.out.println("Method: " + cfg.getMethod().getName().toString());
 
         // get the amount of space we need to allocate for the in/out arrays.
         QuadIterator qit = new QuadIterator(cfg);
@@ -86,7 +86,7 @@ public class Faintness implements Flow.Analysis {
         exit = new VarSet();
 
         // Most of my initialization is above (computing the universal set)
-        System.out.println("Initialization completed.");
+//        System.out.println("Initialization completed.");
     }
 
     /**
@@ -197,7 +197,7 @@ public class Faintness implements Flow.Analysis {
      */
     public static class VarSet implements Flow.DataflowObject {
         static Set<String> universalSet;
-        private Set<String> set;
+        Set<String> set;
 
         /**
          * The default value has all registers faint

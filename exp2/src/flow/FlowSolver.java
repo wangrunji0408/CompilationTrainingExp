@@ -84,7 +84,7 @@ public class FlowSolver implements Flow.Solver {
                 {
                     Quad quad = iter.next();
                     analysis.setIn(quad, computeConfluence(iter.predecessors1(), true));
-                    changesMade = changesMade || transfer(quad, true);
+                    changesMade = transfer(quad, true) || changesMade;
 
                     // Check if we need to update the exit
                     if (iter.successors1().contains(null)) {
@@ -98,7 +98,7 @@ public class FlowSolver implements Flow.Solver {
                 {
                     Quad quad = iter.previous();
                     analysis.setOut(quad, computeConfluence(iter.successors1(), false));
-                    changesMade = changesMade || transfer(quad, false);
+                    changesMade = transfer(quad, false) || changesMade;
 
                     // Check if we need to update the entry
                     if (iter.predecessors1().contains(null)) {

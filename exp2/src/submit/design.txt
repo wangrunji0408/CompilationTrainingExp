@@ -1,3 +1,14 @@
 Describe your design for extra credit in this file.
 
 Give a high level description on each of your optimization techniques. We don't expect too much details. Usually less than 5 sentences should be enough to describe each optimization. But make sure we understand what you are doing.
+
+1. 消除与null比较过后的NullCheck
+
+变量与null比较后会产生两个分支，其中一个是非空（!= null）。
+只需在这个分支头部，插入一个NullCheck即可。
+之后进行数据流分析时，后面的NullCheck会被这个覆盖掉，从而被消除。
+
+具体实现上：
+根据IFCMP语句的EQ/NE，找出非空分支所对应的两个基本块 B1->B2，
+创建新基本块B3，包含一条对此变量的NullCheck语句，将其插入：B1->B3->B2。
+如IFCMP是NE，还要修改Quad中的Target：B2->B3。

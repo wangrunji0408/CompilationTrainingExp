@@ -109,9 +109,17 @@ public class NullTest {
         arr[0].toString();
     }
 
+    static void Test4(boolean q, Integer b) {
+        if(b == null) {
+            return;
+        }
+        b.toString();
+    }
+
     public static void main(String[] args) {
         Test1(true, new Integer(0));
         Test2(true, new Integer(0));
         Test3(true, new Integer(0));
+        Test4(true, new Integer(0));
     }
 }

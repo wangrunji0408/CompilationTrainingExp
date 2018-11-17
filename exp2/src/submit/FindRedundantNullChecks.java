@@ -2,10 +2,7 @@ package submit;
 
 import flow.*;
 import joeq.Class.jq_Class;
-import joeq.Compiler.Quad.ControlFlowGraph;
-import joeq.Compiler.Quad.Operand;
-import joeq.Compiler.Quad.Operator;
-import joeq.Compiler.Quad.Quad;
+import joeq.Compiler.Quad.*;
 import joeq.Main.Helper;
 import java.util.*;
 
@@ -26,7 +23,7 @@ public class FindRedundantNullChecks {
 
         jq_Class clazz = (jq_Class)Helper.load(_args[0]);
         Flow.Solver solver = new FlowSolver();
-        NonNull analyzer = new NonNull();
+        NonNull analyzer = new NonNull(extra);
         solver.registerAnalysis(analyzer);
         Helper.runPass(clazz, solver);
     }
@@ -41,9 +38,19 @@ public class FindRedundantNullChecks {
          */
 
         Set<Integer> redundantNullChecks;
+        final boolean extra;
 
-        @Override
+		NonNull(boolean extra) {
+			this.extra = extra;
+		}
+
+		@Override
         public void preprocess(ControlFlowGraph cfg) {
+		    if(extra) {
+                // Modify CFG first
+                createNullCheckAfterIfCmp(cfg);
+            }
+
             super.preprocess(cfg);
 
             int numargs = cfg.getMethod().getParamTypes().length;
@@ -52,6 +59,53 @@ public class FindRedundantNullChecks {
             }
 
             redundantNullChecks = new TreeSet<Integer>();
+        }
+
+        static void createNullCheckAfterIfCmp(ControlFlowGraph cfg) {
+            QuadIterator iter = new QuadIterator(cfg);
+            while(iter.hasNext()) {
+                Quad q = iter.next();
+                if(!(q.getOperator() instanceof Operator.IntIfCmp
+                        && q.getAllOperands().get(1).isSimilar(new Operand.AConstOperand(null)))) {
+                    continue;
+                }
+                boolean isEQ = ((Operand.ConditionOperand)q.getAllOperands().get(2)).getCondition() == 0;
+                BasicBlock fallBB = iter.getCurrentBasicBlock().getFallthroughSuccessor();
+                BasicBlock branchBB = ((Operand.TargetOperand)q.getAllOperands().get(3)).getTarget();
+                BasicBlock nonNullBB = isEQ? fallBB: branchBB;
+
+                // insert a BasicBlock with NullCheck before the nonNullBB
+                BasicBlock from = iter.getCurrentBasicBlock();
+                BasicBlock to = nonNullBB;
+                BasicBlock newb = cfg.createBasicBlock(1, 1, 1, null);
+                newb.addQuad(0, createANullCheckQuad(cfg, q.getUsedRegisters().get(0)));
+                // modify the link
+                from.removeSuccessor(to);
+                from.addSuccessor(newb);
+                to.removePredecessor(from);
+                to.addPredecessor(newb);
+                newb.addPredecessor(from);
+                newb.addSuccessor(to);
+                // change current Quad's target
+                if(!isEQ) {
+                    q.setOp4(new Operand.TargetOperand(newb));
+                }
+            }
+//            System.out.println(cfg.fullDump());
+        }
+
+        static Quad createANullCheckQuad(ControlFlowGraph cfg, Operand.RegisterOperand reg) {
+		    // trick: find a NullCheck and copy it
+            QuadIterator iter = new QuadIterator(cfg);
+            while(iter.hasNext()) {
+                Quad q = iter.next();
+                if(q.getOperator() instanceof Operator.NullCheck) {
+                    Quad newQuad = q.copy(cfg.getNewQuadID());
+                    newQuad.setOp2(reg);
+                    return newQuad;
+                }
+            }
+            throw new RuntimeException("NullCheck not found");
         }
 
         @Override

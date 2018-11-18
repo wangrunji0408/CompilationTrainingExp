@@ -1,6 +1,8 @@
 package submit;
 
 import examples.PrintQuads;
+import flow.Flow;
+import flow.FlowSolver;
 import joeq.Class.jq_Class;
 import joeq.Interpreter.QuadInterpreter;
 import joeq.Main.Driver;
@@ -22,6 +24,10 @@ class Optimize {
             jq_Class clazz = (jq_Class) Helper.load(className);
 
             // TODO: Remove redundant null checks
+            Flow.Solver solver = new FlowSolver();
+            FindRedundantNullChecks.NonNull analyzer = new FindRedundantNullChecks.NonNull(false, true);
+            solver.registerAnalysis(analyzer);
+            Helper.runPass(clazz, solver);
 
             if (!nullCheckOnly) {
                 // TODO: Run your extra optimizations. (Not required)

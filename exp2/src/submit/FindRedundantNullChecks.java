@@ -23,7 +23,7 @@ public class FindRedundantNullChecks {
 
         jq_Class clazz = (jq_Class)Helper.load(_args[0]);
         Flow.Solver solver = new FlowSolver();
-        NonNull analyzer = new NonNull(extra);
+        NonNull analyzer = new NonNull(extra, false);
         solver.registerAnalysis(analyzer);
         Helper.runPass(clazz, solver);
     }
@@ -38,14 +38,19 @@ public class FindRedundantNullChecks {
          */
 
         Set<Integer> redundantNullChecks;
+        Set<Integer> createdNullChecks;
         final boolean extra;
+        final boolean doOpt;
 
-		NonNull(boolean extra) {
+		NonNull(boolean extra, boolean doOpt) {
 			this.extra = extra;
+			this.doOpt = doOpt;
 		}
 
 		@Override
         public void preprocess(ControlFlowGraph cfg) {
+            createdNullChecks = new TreeSet<Integer>();
+            redundantNullChecks = new TreeSet<Integer>();
 		    if(extra) {
                 // Modify CFG first
                 createNullCheckAfterIfCmp(cfg);
@@ -57,11 +62,9 @@ public class FindRedundantNullChecks {
             for (int i = 0; i < numargs; i++) {
                 super.entry.set.remove("R" + i);
             }
-
-            redundantNullChecks = new TreeSet<Integer>();
         }
 
-        static void createNullCheckAfterIfCmp(ControlFlowGraph cfg) {
+        void createNullCheckAfterIfCmp(ControlFlowGraph cfg) {
             QuadIterator iter = new QuadIterator(cfg);
             while(iter.hasNext()) {
                 Quad q = iter.next();
@@ -94,13 +97,15 @@ public class FindRedundantNullChecks {
 //            System.out.println(cfg.fullDump());
         }
 
-        static Quad createANullCheckQuad(ControlFlowGraph cfg, Operand.RegisterOperand reg) {
+        Quad createANullCheckQuad(ControlFlowGraph cfg, Operand.RegisterOperand reg) {
 		    // trick: find a NullCheck and copy it
             QuadIterator iter = new QuadIterator(cfg);
             while(iter.hasNext()) {
                 Quad q = iter.next();
                 if(q.getOperator() instanceof Operator.NullCheck) {
-                    Quad newQuad = q.copy(cfg.getNewQuadID());
+                    int id = cfg.getNewQuadID();
+                    this.createdNullChecks.add(id);
+                    Quad newQuad = q.copy(id);
                     newQuad.setOp2(reg);
                     return newQuad;
                 }
@@ -114,6 +119,20 @@ public class FindRedundantNullChecks {
             for (Integer id: redundantNullChecks)
                 System.out.print(" " + id.toString());
             System.out.println();
+            if(doOpt) {
+                doOptimize(cfg);
+            }
+        }
+
+        void doOptimize(ControlFlowGraph cfg) {
+            QuadIterator iter = new QuadIterator(cfg);
+            while(iter.hasNext()) {
+                Quad q = iter.next();
+                if(this.createdNullChecks.contains(q.getID())
+                || this.redundantNullChecks.contains(q.getID())) {
+                    iter.remove();
+                }
+            }
         }
 
         @Override

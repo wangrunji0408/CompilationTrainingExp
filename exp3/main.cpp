@@ -51,26 +51,125 @@ public:
 
   // Not using InstVisitor::visit due to their sequential order.
   // We want topological order on the Call Graph and CFG.
-  void visitModule(Module &M) {}
-  void visitFunction(Function &F) {}
-  void visitBasicBlock(BasicBlock &B) {}
+  void visitModule(Module &M) {
+    for(auto &f: M.getFunctionList()) {
+      visitFunction(f);
+    }
+  }
+  void visitFunction(Function &F) {
+    std::cerr << "Function " << F.getName().str() << std::endl;
+    solver.reset();
+    for(auto &bb: F.getBasicBlockList()) {
+      visitBasicBlock(bb);
+    }
+  }
+  void visitBasicBlock(BasicBlock &B) {
+    std::cerr << "BasicBlock " << B.getName().str() << std::endl;
+    for(auto &inst: B.getInstList()) {
+      this->visit(inst);
+    }
+  }
 
-  void visitAdd(BinaryOperator &I) {}
-  void visitSub(BinaryOperator &I) {}
-  void visitMul(BinaryOperator &I) {}
-  void visitShl(BinaryOperator &I) {}
-  void visitLShr(BinaryOperator &I) {}
-  void visitAShr(BinaryOperator &I) {}
-  void visitAnd(BinaryOperator &I) {}
-  void visitOr(BinaryOperator &I) {}
-  void visitXor(BinaryOperator &I) {}
-  void visitICmp(ICmpInst &I) {}
+  void visitZExtInst(ZExtInst &I) {
+    auto dst_sz = I.getDestTy()->getIntegerBitWidth();
+    auto dst = ctx.bv_const(I.getName().str().c_str(), dst_sz);
+    auto src_sz = I.getSrcTy()->getIntegerBitWidth();
+    auto src = ctx.bv_const(I.getOperand(0)->getName().str().c_str(), src_sz);
+    auto e = dst == z3::zext(src, dst_sz - src_sz);
+    solver.add(e);
+  }
+
+  void visitSExtInst(SExtInst &I) {
+    auto dst_sz = I.getDestTy()->getIntegerBitWidth();
+    auto dst = ctx.bv_const(I.getName().str().c_str(), dst_sz);
+    auto src_sz = I.getSrcTy()->getIntegerBitWidth();
+    auto src = ctx.bv_const(I.getOperand(0)->getName().str().c_str(), src_sz);
+    auto e = dst == z3::sext(src, dst_sz - src_sz);
+    solver.add(e);
+  }
+
+  void visitBinaryOperator(BinaryOperator &I) {
+    if(!isSupportedBinOp(I.getOpcode()))
+      return;
+    auto dst = ctx.bv_const(I.getName().str().c_str(), 32);
+    auto e1 = operandToZ3(I.getOperand(0));
+    auto e2 = operandToZ3(I.getOperand(1));
+    auto e = dst == binOpToZ3(I.getOpcode(), e1, e2);
+    solver.add(e);
+  }
+
+  void visitICmp(ICmpInst &I) {
+    auto dst = ctx.bv_const(I.getName().str().c_str(), 1);
+    auto e1 = operandToZ3(I.getOperand(0));
+    auto e2 = operandToZ3(I.getOperand(1));
+    auto cond = predicateToZ3(I.getPredicate(), e1, e2);
+    auto e = dst == z3::ite(cond, ctx.bv_val(1, 1), ctx.bv_val(0, 1));
+    solver.add(e);
+  }
+
+  z3::expr operandToZ3(llvm::Value* value) {
+    if(auto ci = dyn_cast<llvm::ConstantInt>(value)) {
+      auto val = ci->getValue().getSExtValue();
+      auto sz = ci->getType()->getIntegerBitWidth();
+      return ctx.bv_val(val, sz);
+    } else {
+      return ctx.bv_const(value->getName().str().c_str(), 32);
+    }
+  }
+
+  static bool isSupportedBinOp(Instruction::BinaryOps const &op) {
+    switch(op) {
+      case Instruction::BinaryOps::Add:   return true;
+      case Instruction::BinaryOps::Sub:   return true;
+      case Instruction::BinaryOps::Mul:   return true;
+      case Instruction::BinaryOps::Shl:   return true;
+      case Instruction::BinaryOps::LShr:  return true;
+      case Instruction::BinaryOps::AShr:  return true;
+      case Instruction::BinaryOps::And:   return true;
+      case Instruction::BinaryOps::Or:    return true;
+      case Instruction::BinaryOps::Xor:   return true;
+      default: return false;
+    }
+  }
+
+  static z3::expr binOpToZ3(Instruction::BinaryOps const &op, z3::expr const &e1, z3::expr const &e2) {
+    switch(op) {
+      case Instruction::BinaryOps::Add:   return e1 + e2;
+      case Instruction::BinaryOps::Sub:   return e1 - e2;
+      case Instruction::BinaryOps::Mul:   return e1 * e2;
+      case Instruction::BinaryOps::Shl:   return z3::shl(e1, e2);
+      case Instruction::BinaryOps::LShr:  return z3::lshr(e1, e2);
+      case Instruction::BinaryOps::AShr:  return z3::ashr(e1, e2);
+      case Instruction::BinaryOps::And:   return e1 & e2;
+      case Instruction::BinaryOps::Or:    return e1 | e2;
+      case Instruction::BinaryOps::Xor:   return e1 ^ e2;
+      default: throw std::exception();
+    }
+  }
+
+  static z3::expr predicateToZ3(CmpInst::Predicate const &p, z3::expr const &e1, z3::expr const &e2) {
+    switch(p) {
+      case CmpInst::Predicate::ICMP_EQ:  return e1 == e2;
+      case CmpInst::Predicate::ICMP_NE:  return e1 != e2;
+      case CmpInst::Predicate::ICMP_ULT: return e1 <  e2;
+      case CmpInst::Predicate::ICMP_ULE: return e1 <= e2;
+      case CmpInst::Predicate::ICMP_UGT: return e1 >  e2;
+      case CmpInst::Predicate::ICMP_UGE: return e1 >= e2;
+      case CmpInst::Predicate::ICMP_SLT: return e1 <  e2;
+      case CmpInst::Predicate::ICMP_SLE: return e1 <= e2;
+      case CmpInst::Predicate::ICMP_SGT: return e1 >  e2;
+      case CmpInst::Predicate::ICMP_SGE: return e1 >= e2;
+      default: throw std::exception();
+    }
+  }
 
   void visitBranchInst(BranchInst &I) {}
   void visitPHINode(PHINode &I) {}
 
   // Call checkAndReport here.
-  void visitGetElementPtrInst(GetElementPtrInst &I) {}
+  void visitGetElementPtrInst(GetElementPtrInst &I) {
+    checkAndReport(solver, I);
+  }
 };
 
 int main(int argc, char const *argv[]) {

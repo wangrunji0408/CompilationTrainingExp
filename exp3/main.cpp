@@ -1,6 +1,7 @@
 
 #include <map>
 #include <string>
+#include <set>
 
 #include <llvm/IR/CFG.h>
 #include <llvm/IR/InstVisitor.h>
@@ -46,11 +47,18 @@ private:
   z3::context ctx;
   z3::solver solver;
   // [Task2] Arguments of current processing function
+  z3::func_decl   func;
   z3::expr_vector func_args;      // forall
   z3::sort_vector func_argtypes;  // declear-fun
+  std::set<std::string> args;
+  // task1: register as z3::constant
+  // task2: register as z3::function
+  // NOTE: task2 is incomplete. GG
+  const bool TASK1 = true;
 
 public:
-  Z3Walker() : ctx(), solver(ctx), func_args(ctx), func_argtypes(ctx) {}
+  Z3Walker() : ctx(), solver(ctx),
+    func(ctx), func_args(ctx), func_argtypes(ctx) {}
 
   // Not using InstVisitor::visit due to their sequential order.
   // We want topological order on the Call Graph and CFG.
@@ -72,16 +80,31 @@ public:
     predicate_map.clear();
 
     // [Task2]
+    args.clear();
     func_args.resize(0);
     func_argtypes.resize(0);
     for(auto &arg: F.args()) {
       auto name = arg.getName().str().c_str();
       auto sz = arg.getType()->getIntegerBitWidth();
+      args.insert(name);
       func_args.push_back(ctx.bv_const(name, sz));
       func_argtypes.push_back(ctx.bv_sort(sz));
     }
+    auto name = F.getName().str().c_str();
+    auto size = F.getReturnType()->getIntegerBitWidth();
+    func = ctx.function(name, func_argtypes, ctx.bv_sort(size));
 
     visitBasicBlock(F.getEntryBlock());
+
+    // Task2 Debug:
+//    std::cerr << solver.assertions() << std::endl;
+//
+//    solver.check();
+//    auto model = solver.get_model();
+//    std::cerr << model << std::endl;
+//
+//    auto eval = model.eval(func(func_args));
+//    std::cerr << eval << std::endl;
   }
 
   void visitBasicBlock(BasicBlock &B) {
@@ -117,8 +140,6 @@ public:
   }
 
   void visitBinaryOperator(BinaryOperator &I) {
-    if(!isSupportedBinOp(I.getOpcode()))
-      return;
     auto e1 = valueToZ3(I.getOperand(0));
     auto e2 = valueToZ3(I.getOperand(1));
     auto expr = binOpToZ3(I.getOpcode(), e1, e2);
@@ -142,48 +163,31 @@ public:
   }
 
   z3::expr valueToZ3(llvm::Value *value) {
+    auto name = value->getName().str().c_str();
     auto sz = value->getType()->getIntegerBitWidth();
     if(auto ci = dyn_cast<llvm::ConstantInt>(value)) {
       return ctx.bv_val(ci->getValue().getSExtValue(), sz);
+    } else if(TASK1 || args.count(name)) {
+      return ctx.bv_const(name, sz);
     } else {
-      return ctx.bv_const(value->getName().str().c_str(), sz);
+      return ctx.function(name, func_argtypes, ctx.bv_sort(sz))(func_args);
     }
   }
 
-  // In task1
-  z3::expr instToZ3Const(llvm::Instruction const &I) {
+  z3::expr varToZ3(llvm::Instruction const &I) {
     auto name = I.getName().str().c_str();
     auto size = I.getType()->getIntegerBitWidth();
-    return ctx.bv_const(name, size);
-  }
-
-  // In task2
-  z3::func_decl instToZ3Func(llvm::Instruction const &I) {
-    auto name = I.getName().str().c_str();
-    auto size = I.getType()->getIntegerBitWidth();
-    return z3::function(name, func_argtypes, ctx.bv_sort(size));
+    if(TASK1)
+      return ctx.bv_const(name, size);
+    else {
+      return ctx.function(name, func_argtypes, ctx.bv_sort(size))(func_args);
+    }
   }
 
   z3::expr instToZ3(llvm::Instruction const &I, z3::expr const &expr) {
-    const bool task1 = true;
-    return task1?
-      instToZ3Const(I) == expr:
-      z3::forall(func_args, instToZ3Func(I)(func_args) == expr);
-  }
-
-  static bool isSupportedBinOp(Instruction::BinaryOps const &op) {
-    switch(op) {
-      case Instruction::BinaryOps::Add:
-      case Instruction::BinaryOps::Sub:
-      case Instruction::BinaryOps::Mul:
-      case Instruction::BinaryOps::Shl:
-      case Instruction::BinaryOps::LShr:
-      case Instruction::BinaryOps::AShr:
-      case Instruction::BinaryOps::And:
-      case Instruction::BinaryOps::Or:
-      case Instruction::BinaryOps::Xor:   return true;
-      default: return false;
-    }
+    return TASK1?
+           varToZ3(I) == expr:
+           z3::forall(func_args, varToZ3(I) == expr);
   }
 
   static z3::expr binOpToZ3(Instruction::BinaryOps const &op, z3::expr const &e1, z3::expr const &e2) {
@@ -197,7 +201,7 @@ public:
       case Instruction::BinaryOps::And:   return e1 & e2;
       case Instruction::BinaryOps::Or:    return e1 | e2;
       case Instruction::BinaryOps::Xor:   return e1 ^ e2;
-      default: throw std::exception();
+      default: throw std::runtime_error("Not supported binary operator");
     }
   }
 
@@ -213,7 +217,7 @@ public:
       case CmpInst::Predicate::ICMP_SLE: return e1 <= e2;
       case CmpInst::Predicate::ICMP_SGT: return e1 >  e2;
       case CmpInst::Predicate::ICMP_SGE: return e1 >= e2;
-      default: throw std::exception();
+      default: throw std::runtime_error("Not supported predicate");
     }
   }
 
@@ -235,7 +239,7 @@ public:
     auto predicate = merge_predicate(*I.getParent());
 
     if(I.isConditional()) {
-      auto cmp = ctx.bv_const(I.getOperand(0)->getName().str().c_str(), 1);
+      auto cmp = valueToZ3(I.getOperand(0));
       auto &tb = *I.getSuccessor(0);
       auto &fb = *I.getSuccessor(1);
       predicate_map[getName(tb)].insert(std::make_pair(bb, predicate && (cmp == 1)));
@@ -251,14 +255,29 @@ public:
   }
 
   void visitPHINode(PHINode &I) {
-    auto dst = instToZ3Const(I);
+    auto dst = varToZ3(I);
 
     for(auto bb: I.blocks()) {
       auto const& pred = predicate_map[getName(*I.getParent())].find(getName(*bb))->second;
       auto src = valueToZ3(I.getIncomingValueForBlock(bb));
       auto e = z3::implies(pred, dst == src);
+      if(!TASK1)
+        e = z3::forall(func_args, e);
       solver.add(e);
     }
+  }
+
+  void visitReturnInst(ReturnInst &I) {
+    // Task2 only
+    if(TASK1)
+      return;
+    // assume only one return
+//    auto pred = merge_predicate(*I.getParent());
+    auto src = valueToZ3(I.getOperand(0));
+
+//    auto e = z3::forall(func_args, z3::implies(pred, func(func_args) == src));
+    auto e = z3::forall(func_args, func(func_args) == src);
+    solver.add(e);
   }
 
   // Call checkAndReport here.

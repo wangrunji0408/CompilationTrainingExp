@@ -45,9 +45,12 @@ private:
   std::map<std::string, std::map<std::string, z3::expr>> predicate_map;
   z3::context ctx;
   z3::solver solver;
+  // [Task2] Arguments of current processing function
+  z3::expr_vector func_args;      // forall
+  z3::sort_vector func_argtypes;  // declear-fun
 
 public:
-  Z3Walker() : ctx(), solver(ctx) {}
+  Z3Walker() : ctx(), solver(ctx), func_args(ctx), func_argtypes(ctx) {}
 
   // Not using InstVisitor::visit due to their sequential order.
   // We want topological order on the Call Graph and CFG.
@@ -67,6 +70,17 @@ public:
     // reset
     solver.reset();
     predicate_map.clear();
+
+    // [Task2]
+    func_args.resize(0);
+    func_argtypes.resize(0);
+    for(auto &arg: F.args()) {
+      auto name = arg.getName().str().c_str();
+      auto sz = arg.getType()->getIntegerBitWidth();
+      func_args.push_back(ctx.bv_const(name, sz));
+      func_argtypes.push_back(ctx.bv_sort(sz));
+    }
+
     visitBasicBlock(F.getEntryBlock());
   }
 
@@ -91,40 +105,40 @@ public:
   }
 
   void visitZExtInst(ZExtInst &I) {
-    auto dst_sz = I.getDestTy()->getIntegerBitWidth();
-    auto dst = ctx.bv_const(I.getName().str().c_str(), dst_sz);
-    auto src_sz = I.getSrcTy()->getIntegerBitWidth();
-    auto src = ctx.bv_const(I.getOperand(0)->getName().str().c_str(), src_sz);
-    auto e = dst == z3::zext(src, dst_sz - src_sz);
-    solver.add(e);
+    auto src = valueToZ3(I.getOperand(0));
+    auto expr = z3::zext(src, getExtSize(I));
+    solver.add(instToZ3(I, expr));
   }
 
   void visitSExtInst(SExtInst &I) {
-    auto dst_sz = I.getDestTy()->getIntegerBitWidth();
-    auto dst = ctx.bv_const(I.getName().str().c_str(), dst_sz);
-    auto src_sz = I.getSrcTy()->getIntegerBitWidth();
-    auto src = ctx.bv_const(I.getOperand(0)->getName().str().c_str(), src_sz);
-    auto e = dst == z3::sext(src, dst_sz - src_sz);
-    solver.add(e);
+    auto src = valueToZ3(I.getOperand(0));
+    auto expr = z3::sext(src, getExtSize(I));
+    solver.add(instToZ3(I, expr));
   }
 
   void visitBinaryOperator(BinaryOperator &I) {
     if(!isSupportedBinOp(I.getOpcode()))
       return;
-    auto dst = ctx.bv_const(I.getName().str().c_str(), I.getType()->getIntegerBitWidth());
     auto e1 = valueToZ3(I.getOperand(0));
     auto e2 = valueToZ3(I.getOperand(1));
-    auto e = dst == binOpToZ3(I.getOpcode(), e1, e2);
-    solver.add(e);
+    auto expr = binOpToZ3(I.getOpcode(), e1, e2);
+    solver.add(instToZ3(I, expr));
   }
 
   void visitICmp(ICmpInst &I) {
-    auto dst = ctx.bv_const(I.getName().str().c_str(), 1);
     auto e1 = valueToZ3(I.getOperand(0));
     auto e2 = valueToZ3(I.getOperand(1));
     auto cond = predicateToZ3(I.getPredicate(), e1, e2);
-    auto e = dst == z3::ite(cond, ctx.bv_val(1, 1), ctx.bv_val(0, 1));
-    solver.add(e);
+    auto expr = z3::ite(cond, ctx.bv_val(1, 1), ctx.bv_val(0, 1));
+    solver.add(instToZ3(I, expr));
+  }
+
+  // Helper functions: LLVM -> Z3
+
+  static unsigned getExtSize(CastInst const& I) {
+    auto dst_sz = I.getDestTy()->getIntegerBitWidth();
+    auto src_sz = I.getSrcTy()->getIntegerBitWidth();
+    return dst_sz - src_sz;
   }
 
   z3::expr valueToZ3(llvm::Value *value) {
@@ -134,6 +148,27 @@ public:
     } else {
       return ctx.bv_const(value->getName().str().c_str(), sz);
     }
+  }
+
+  // In task1
+  z3::expr instToZ3Const(llvm::Instruction const &I) {
+    auto name = I.getName().str().c_str();
+    auto size = I.getType()->getIntegerBitWidth();
+    return ctx.bv_const(name, size);
+  }
+
+  // In task2
+  z3::func_decl instToZ3Func(llvm::Instruction const &I) {
+    auto name = I.getName().str().c_str();
+    auto size = I.getType()->getIntegerBitWidth();
+    return z3::function(name, func_argtypes, ctx.bv_sort(size));
+  }
+
+  z3::expr instToZ3(llvm::Instruction const &I, z3::expr const &expr) {
+    const bool task1 = true;
+    return task1?
+      instToZ3Const(I) == expr:
+      z3::forall(func_args, instToZ3Func(I)(func_args) == expr);
   }
 
   static bool isSupportedBinOp(Instruction::BinaryOps const &op) {
@@ -216,7 +251,7 @@ public:
   }
 
   void visitPHINode(PHINode &I) {
-    auto dst = ctx.bv_const(I.getName().str().c_str(), I.getType()->getIntegerBitWidth());
+    auto dst = instToZ3Const(I);
 
     for(auto bb: I.blocks()) {
       auto const& pred = predicate_map[getName(*I.getParent())].find(getName(*bb))->second;
@@ -239,7 +274,7 @@ public:
       solver.add(pred);
 
       auto len = (int)I.getSourceElementType()->getArrayNumElements();
-      auto idx = ctx.bv_const(I.getOperand(2)->getName().str().c_str(), 64);
+      auto idx = valueToZ3(I.getOperand(2));
       auto out_of_bound = idx < 0 || idx >= len;
       solver.add(out_of_bound);
 
